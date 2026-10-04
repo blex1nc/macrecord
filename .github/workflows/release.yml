@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Offline guarantee
+        run: ./scripts/check-no-network.sh
+      - name: Test
+        run: swift test
+      - name: Build universal app
+        run: RELEASE=1 VERSION="${GITHUB_REF_NAME#v}" ./scripts/build-app.sh
+      - name: Package
+        run: |
+          cd dist
+          ditto -c -k --keepParent macrecord.app macrecord.zip
+          cd .. && ./scripts/make-dmg.sh && cd dist
+          shasum -a 256 macrecord.zip macrecord.dmg | tee SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/macrecord.zip dist/macrecord.dmg dist/SHA256SUMS --generate-notes
