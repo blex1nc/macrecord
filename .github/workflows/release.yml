@@ -30,3 +30,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" dist/macrecord.zip dist/macrecord.dmg dist/SHA256SUMS --generate-notes
+
+  windows:
+    needs: release
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Network allowlist
+        run: ./scripts/check-windows-network.sh
+      - name: Test core
+        run: dotnet test windows/tests/Macrecord.Core.Tests/Macrecord.Core.Tests.csproj
+      - name: Publish single-file exe
+        run: |
+          dotnet publish windows/src/Macrecord.Windows/Macrecord.Windows.csproj -c Release -r win-x64 \
+            --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:Version="${GITHUB_REF_NAME#v}" -o windows/dist
+          cp windows/dist/macrecord.exe macrecord-windows-x64.exe
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" macrecord-windows-x64.exe

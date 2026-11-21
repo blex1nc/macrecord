@@ -18,3 +18,27 @@ jobs:
         run: swift test
       - name: Bundle app
         run: ./scripts/build-app.sh
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Network allowlist
+        run: ./scripts/check-windows-network.sh
+      - name: Test core
+        run: dotnet test windows/tests/Macrecord.Core.Tests/Macrecord.Core.Tests.csproj
+      - name: Publish single-file exe
+        run: |
+          dotnet publish windows/src/Macrecord.Windows/Macrecord.Windows.csproj -c Release -r win-x64 \
+            --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o windows/dist
+          ls -la windows/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macrecord-windows-x64
+          path: windows/dist/macrecord.exe
