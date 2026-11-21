@@ -3,6 +3,13 @@ import Foundation
 public struct AutoClickConfig: Codable, Equatable, Sendable {
     public enum ClickType: String, Codable, Sendable, CaseIterable { case single, double }
     public enum Mode: String, Codable, Sendable, CaseIterable { case toggle, hold }
+    /// How clicks reach their target.
+    /// - system: through the HID event stream; moves the cursor and changes the global button state,
+    ///   so physical motion during a click turns into drags (camera stutter in games).
+    /// - app: straight into the frontmost app's event queue; cursor and global button state stay untouched.
+    /// - fast: routed by the WindowServer like a system click, but entering after every session-level event tap,
+    ///   so another app's slow mouse tap (seen: Supercharge, ~31 ms per click) can't stall the mouse stream.
+    public enum Delivery: String, Codable, Sendable, CaseIterable { case system, fast, app }
 
     public enum Target: Codable, Equatable, Sendable {
         case cursor
@@ -35,10 +42,14 @@ public struct AutoClickConfig: Codable, Equatable, Sendable {
     public var holdDurationMs: Double
     public var limit: Limit
     public var mode: Mode
+    /// Optional so settings saved before it existed still decode; nil means `.system`.
+    /// `.app` stays opt-in: some games (Roblox) ignore pid-posted clicks.
+    public var delivery: Delivery?
+    public var effectiveDelivery: Delivery { delivery ?? .system }
 
     public init(clicksPerSecond: Double = 10, button: MouseButton = .left, clickType: ClickType = .single,
                 target: Target = .cursor, timingJitter: Double = 0, positionJitter: Double = 0,
-                holdDurationMs: Double = 0, limit: Limit = .none, mode: Mode = .toggle) {
+                holdDurationMs: Double = 0, limit: Limit = .none, mode: Mode = .toggle, delivery: Delivery? = nil) {
         self.clicksPerSecond = clicksPerSecond
         self.button = button
         self.clickType = clickType
@@ -48,6 +59,7 @@ public struct AutoClickConfig: Codable, Equatable, Sendable {
         self.holdDurationMs = holdDurationMs
         self.limit = limit
         self.mode = mode
+        self.delivery = delivery
     }
 
     public static let cpsRange: ClosedRange<Double> = 0.1...2000

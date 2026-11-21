@@ -11,7 +11,7 @@ Everything runs on your Mac. There is no networking code at all — CI fails the
   (real-time thread, absolute scheduling — no drift over long macros). See [benchmarks](docs/BENCHMARKS.md).
 - **Zero-lag recording:** passive event tap, nothing in the system input path waits on macrecord.
 - **Autoclicker:** up to 2000 CPS, left/right/middle/back/forward, single/double, cursor / fixed point / point sequence,
-  timing & position randomness, hold duration, click or time limits, toggle or hold-to-click shortcut.
+  timing & position randomness, hold duration, click or time limits, toggle or hold-to-click shortcut (keyboard or a middle/side mouse button).
 - **Editor:** edit delays, delete/insert steps, simplify mouse paths (Ramer–Douglas–Peucker), remove moves, undo.
 - **Conditions:** wait for a pixel color (ScreenCaptureKit, local), bring an app to the front.
 - **Scripting:** JavaScript macros (JavaScriptCore) with loops, variables, `click`, `key`, `type`, `pixel`, `play(...)`.

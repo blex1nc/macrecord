@@ -1,3 +1,4 @@
+import Foundation
 import CoreGraphics
 import CSupport
 import Testing
@@ -49,5 +50,37 @@ import MacroCore
             let deadline = mr_now_ticks() + mr_ns_to_ticks(2_000_000)
             #expect(mr_wait_until(deadline, spin) >= deadline)
         }
+    }
+
+    /// Uses the sink, so no real click is posted (only the no-op warm-up event).
+    @Test func autoClickerDeliversThroughSink() throws {
+        final class Sink: @unchecked Sendable {
+            let lock = NSLock()
+            var events: [(CGEventType, CGPoint, Int64)] = []
+        }
+        let sink = Sink()
+        let done = DispatchSemaphore(value: 0)
+        let clicker = AutoClicker()
+        clicker.post = { event in
+            sink.lock.lock()
+            sink.events.append((event.type, event.location, event.getIntegerValueField(.mouseEventButtonNumber)))
+            sink.lock.unlock()
+        }
+        clicker.onFinish = { done.signal() }
+        clicker.start(AutoClickConfig(clicksPerSecond: 1000, button: .right, target: .fixed(x: 5, y: 7),
+                                      limit: .clicks(3)))
+        #expect(done.wait(timeout: .now() + 2) == .success)
+        sink.lock.lock(); defer { sink.lock.unlock() }
+        #expect(sink.events.map(\.0) == [.rightMouseDown, .rightMouseUp, .rightMouseDown, .rightMouseUp,
+                                          .rightMouseDown, .rightMouseUp])
+        #expect(sink.events.allSatisfy { $0.1 == CGPoint(x: 5, y: 7) && $0.2 == 1 })
+        #expect(clicker.clickCount == 3)
+    }
+
+    @Test func appDeliveryAddressesTheWindow() throws {
+        let event = try #require(EventFactory().mouse(.leftMouseDown, at: .zero, button: .left))
+        AutoClicker.address(event, toWindow: 4242)
+        #expect(event.getIntegerValueField(.mouseEventWindowUnderMousePointer) == 4242)
+        #expect(event.getIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent) == 4242)
     }
 }

@@ -6,6 +6,9 @@ struct AppSettings: Codable, Equatable {
     var playHotkey = KeyCombo(keyCode: 35, modifiers: ModifierFlags([.option, .command]).rawValue)      // ⌥⌘P
     var stopHotkey = KeyCombo(keyCode: 53, modifiers: ModifierFlags([.command]).rawValue)               // ⌘⎋
     var autoclickHotkey = KeyCombo(keyCode: 0, modifiers: ModifierFlags([.option, .command]).rawValue)  // ⌥⌘A
+    /// CGEvent button number (2 = middle, 3 = back, 4 = forward…) that also triggers the autoclicker.
+    /// Optional so settings saved before it existed still decode.
+    var autoclickMouseButton: Int?
     var captureMouseMoves = true
     var stopOnUserInput = true
     var autoclick = AutoClickConfig()

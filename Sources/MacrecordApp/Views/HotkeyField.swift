@@ -6,6 +6,7 @@ import SwiftUI
 struct HotkeyField: View {
     @Binding var combo: KeyCombo?
     var allowsClear = true
+    var minWidth: CGFloat = 110
     @State private var listening = false
     @State private var monitor: Any?
 
@@ -15,7 +16,7 @@ struct HotkeyField: View {
                 listening ? stopListening() : startListening()
             } label: {
                 Text(listening ? "Press shortcut…" : (combo.map { LocalizedStringKey(KeyNames.describe($0)) } ?? "None"))
-                    .frame(minWidth: 110)
+                    .frame(minWidth: minWidth)
             }
             if allowsClear, combo != nil, !listening {
                 Button { combo = nil } label: { Image(systemName: "xmark.circle.fill") }
@@ -55,8 +56,70 @@ struct HotkeyField: View {
 /// Non-optional variant for required shortcuts.
 struct RequiredHotkeyField: View {
     @Binding var combo: KeyCombo
+    var minWidth: CGFloat = 110
 
     var body: some View {
-        HotkeyField(combo: Binding(get: { combo }, set: { if let value = $0 { combo = value } }), allowsClear: false)
+        HotkeyField(combo: Binding(get: { combo }, set: { if let value = $0 { combo = value } }), allowsClear: false,
+                    minWidth: minWidth)
+    }
+}
+
+/// Click, then press a mouse button over the window (middle or side buttons only). Esc cancels.
+struct MouseButtonField: View {
+    @Binding var button: Int?
+    var onListeningChange: (Bool) -> Void = { _ in }
+    @State private var listening = false
+    @State private var monitor: Any?
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button {
+                listening ? stopListening() : startListening()
+            } label: {
+                Group {
+                    if listening {
+                        Text("Press a mouse button…")
+                    } else if let button {
+                        Text(Self.name(button))
+                    } else {
+                        Text("None")
+                    }
+                }
+                .frame(minWidth: 110)
+            }
+            if button != nil, !listening {
+                Button { button = nil } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.borderless)
+            }
+        }
+        .onDisappear(perform: stopListening)
+    }
+
+    /// Localized name for a CGEvent button number.
+    static func name(_ button: Int) -> String {
+        if let known = MouseButton(rawValue: button) { return String(localized: String.LocalizationValue(known.name)) }
+        return String(localized: "Button \(button + 1)")
+    }
+
+    private func startListening() {
+        listening = true
+        onListeningChange(true)
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .keyDown]) { event in
+            if event.type == .keyDown {
+                if event.keyCode == 53 { stopListening() }
+            } else if MouseTrigger.isAllowed(event.buttonNumber) {
+                button = event.buttonNumber
+                stopListening()
+            }
+            return nil
+        }
+    }
+
+    private func stopListening() {
+        guard listening else { return }
+        listening = false
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        onListeningChange(false)
     }
 }

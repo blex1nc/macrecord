@@ -11,6 +11,11 @@ public final class EventFactory {
         source.userData = macrecordEventTag
         // Default suppression blocks the user's own input briefly after every post ("laggy" feel).
         source.localEventsSuppressionInterval = 0
+        // While a synthetic button is down, local mouse input is filtered by default; at high click rates
+        // that drops real mouse motion (frozen camera in games).
+        source.setLocalEventsFilterDuringSuppressionState(
+            [.permitLocalMouseEvents, .permitLocalKeyboardEvents, .permitSystemDefinedEvents],
+            state: .eventSuppressionStateRemoteMouseDrag)
     }
 
     /// A no-op event: travels the same path to the WindowServer but has no effect.

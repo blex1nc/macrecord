@@ -24,7 +24,8 @@ struct ContentView: View {
                     }
                 }
             }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 240)
+            .safeAreaInset(edge: .bottom) { ShortcutsFooter() }
+            .navigationSplitViewColumnWidth(min: 220, ideal: 250)
         } detail: {
             VStack(spacing: 0) {
                 if !state.permissionsGranted {
@@ -91,6 +92,32 @@ struct ContentView: View {
     private var placeholder: some View {
         ContentUnavailableView("No macro selected", systemImage: "record.circle",
                                description: Text("Press \(KeyNames.describe(state.settings.recordHotkey)) to record."))
+    }
+}
+
+/// Always-visible global shortcuts for recording and playback (also editable in Settings).
+struct ShortcutsFooter: View {
+    @Environment(AppState.self) private var state
+
+    var body: some View {
+        @Bindable var state = state
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Shortcuts").font(.caption.bold()).foregroundStyle(.secondary)
+            row("Record / stop") { RequiredHotkeyField(combo: $state.settings.recordHotkey, minWidth: 64) }
+            row("Play / stop") { RequiredHotkeyField(combo: $state.settings.playHotkey, minWidth: 64) }
+        }
+        .controlSize(.small)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
+    }
+
+    private func row(_ title: LocalizedStringKey, @ViewBuilder field: () -> some View) -> some View {
+        HStack {
+            Text(title).lineLimit(1)
+            Spacer(minLength: 4)
+            field()
+        }
     }
 }
 

@@ -8,6 +8,9 @@ public final class AutoClicker {
     public var spinNs: UInt64 = 200_000
     /// Called on the clicker thread when it stops (limit reached or `stop()`).
     public var onFinish: (() -> Void)?
+    /// Event poster override; tests set it to observe clicks without touching real input.
+    /// nil delivers according to the config's `Delivery`.
+    public var post: ((CGEvent) -> Void)?
 
     public var isRunning: Bool { mr_flag_load(running) }
     public var clickCount: Int { Int(mr_counter_load(clicks)) }
@@ -24,18 +27,66 @@ public final class AutoClicker {
         mr_counter_destroy(clicks)
     }
 
-    public func start(_ config: AutoClickConfig) {
+    /// `targetPID` is the app that receives clicks with `.app` delivery; without it clicks go through the system.
+    /// `targetWindow` (a CGWindowID of that app) tells AppKit which window the click belongs to.
+    public func start(_ config: AutoClickConfig, targetPID: pid_t? = nil, targetWindow: Int64? = nil) {
         guard !isRunning else { return }
         mr_flag_store(running, true)
         mr_counter_store(clicks, 0)
-        RealtimeThread.start(name: "macrecord.autoclicker") { [self] in run(config) }
+        let deliver = post ?? Self.poster(config.effectiveDelivery, targetPID: targetPID, targetWindow: targetWindow)
+        RealtimeThread.start(name: "macrecord.autoclicker") { [self] in run(config, deliver: deliver) }
+    }
+
+    static func poster(_ delivery: AutoClickConfig.Delivery, targetPID: pid_t?,
+                       targetWindow: Int64?) -> (CGEvent) -> Void {
+        if delivery == .app, let targetPID {
+            // Bypasses the HID stream: no cursor warp, no global button state, so physical moves stay moves.
+            return { event in
+                if let targetWindow { address(event, toWindow: targetWindow) }
+                event.postToPid(targetPID)
+            }
+        }
+        if delivery == .fast {
+            // After all session taps: their latency (and their view of our clicks) is skipped.
+            return { $0.post(tap: .cgAnnotatedSessionEventTap) }
+        }
+        return { $0.post(tap: .cghidEventTap) }
+    }
+
+    /// The WindowServer fills these for HID-routed clicks; a pid-posted click without them has no window
+    /// and AppKit may drop it.
+    static func address(_ event: CGEvent, toWindow window: Int64) {
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: window)
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: window)
+    }
+
+    /// Front-most normal-layer on-screen window of `pid`, or nil. Owner/layer/number need no Screen Recording.
+    public static func frontWindowID(of pid: pid_t) -> Int64? {
+        frontWindow { $0 == pid }?.window
+    }
+
+    /// Owner of the front-most normal-layer on-screen window: an independent check of the frontmost app.
+    public static func frontmostWindowOwner() -> pid_t? {
+        frontWindow { _ in true }?.pid
+    }
+
+    private static func frontWindow(where matches: (pid_t) -> Bool) -> (pid: pid_t, window: Int64)? {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                    kCGNullWindowID) as? [[String: Any]] else { return nil }
+        // The list is ordered front to back.
+        for info in list where (info[kCGWindowLayer as String] as? Int) == 0 {
+            guard let owner = (info[kCGWindowOwnerPID as String] as? Int).map(pid_t.init), matches(owner),
+                  let number = info[kCGWindowNumber as String] as? Int else { continue }
+            return (owner, Int64(number))
+        }
+        return nil
     }
 
     public func stop() {
         mr_flag_store(running, false)
     }
 
-    private func run(_ config: AutoClickConfig) {
+    private func run(_ config: AutoClickConfig, deliver: (CGEvent) -> Void) {
         var rng = SystemRandomNumberGenerator()
         factory.warmUp()
         let startTicks = mr_now_ticks()
@@ -62,11 +113,13 @@ public final class AutoClicker {
                     point.y += radius * sin(angle)
                 }
                 for clickState in 1...clicksPerAction {
-                    factory.mouse(downType, at: point, button: config.button, clickCount: clickState)?
-                        .post(tap: .cghidEventTap)
+                    if let down = factory.mouse(downType, at: point, button: config.button, clickCount: clickState) {
+                        deliver(down)
+                    }
                     if hold > 0 { _ = mr_wait_until(mr_now_ticks() + hold, spinNs) }
-                    factory.mouse(upType, at: point, button: config.button, clickCount: clickState)?
-                        .post(tap: .cghidEventTap)
+                    if let up = factory.mouse(upType, at: point, button: config.button, clickCount: clickState) {
+                        deliver(up)
+                    }
                 }
                 mr_counter_add(clicks, 1)
                 let random = config.timingJitter > 0 ? Double.random(in: -1...1, using: &rng) : 0

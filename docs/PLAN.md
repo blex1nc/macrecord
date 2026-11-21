@@ -94,7 +94,9 @@ Her faz kendi başına çalışır durumda biter. Faz 1 bir **git / gitme kapıs
 - CPS ayarı (yüksek CPS dahil), sol/sağ/orta buton, tek/çift tık
 - Konum: imleç / sabit nokta / nokta listesi
 - Rastgele jitter (zaman + konum), tıklama/süre limiti
-- Basılı tut / aç-kapa modları
+- Basılı tut / aç-kapa modları; tetikleyici: klavye kısayolu veya orta/yan fare tuşu
+- Teslim: Sistem (HID akışı, varsayılan) veya Doğrudan uygulamaya (`postToPid`, isteğe bağlı; Roblox bu tıkları yok sayıyor — 2026-11-17 kullanıcı testi); Hızlı yol (annotated session tap, diğer uygulamaların fare tap'lerini atlar; Roblox bunu da yok sayıyor). Roblox'taki kamera takılmasının ölçülen sebebi: Supercharge'ın aktif fare tap'i HID tıklarını ~40 ms bekletiyor
+- Tıklama motoru `macrecord-clickd` yardımcı sürecinde (ClickService: tıklayıcı + fare tuşu tetikleyici + oturum tanılaması, stdin/stdout JSON); yardımcı yoksa/izinsizse aynı motor uygulama içinde çalışır. Her oturum sonunda `clicker` kategorisinde tek satır tanı logu (`postToPid`; imleç/genel tuş durumu değişmez; oyunlardaki kamera takılması için deneysel, oyunda henüz doğrulanmadı)
 
 ### Faz 4 — Editör
 - Olay listesi / zaman çizelgesi görünümü

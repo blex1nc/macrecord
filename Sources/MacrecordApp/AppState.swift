@@ -1,5 +1,6 @@
 import AppKit
 import Capture
+import ClickService
 import Hotkeys
 import MacroCore
 import Observation
@@ -33,16 +34,31 @@ final class AppState {
             guard settings != oldValue else { return }
             settings.save()
             if settings.hotkeys != oldValue.hotkeys { registerHotkeys() }
+            if settings.autoclick != oldValue.autoclick || settings.autoclickMouseButton != oldValue.autoclickMouseButton {
+                pushClickSettings()
+            }
+        }
+    }
+    /// Set while the mouse-button field is listening, so the assigned button reaches it instead of the trigger.
+    var mouseTriggerSuspended = false {
+        didSet {
+            if mouseTriggerSuspended != oldValue { pushClickSettings() }
         }
     }
 
     private let store = MacroStore(directory: MacroStore.defaultDirectory)
     private let recorder = EventRecorder()
     private let player = MacroPlayer()
-    private let clicker = AutoClicker()
     private let scriptRunner = ScriptRunner()
     private let watcher = InputWatcher()
     private let sampler = ScreenPixelSampler()
+    /// The autoclicker engine: the `macrecord-clickd` helper process when it is available and permitted,
+    /// otherwise the same engine in-process.
+    private var clickBackend: ClickBackend = ClickService()
+    /// Whether clicks run in the helper process (shown in the autoclicker view).
+    private(set) var clickEngineIsHelper = false
+    private var hadAccessibility = Permissions.accessibilityGranted
+    private var slowTapsReported = false
     private var ticker: Timer?
     private var undoStacks: [UUID: [[MacroEvent]]] = [:]
 
@@ -50,7 +66,6 @@ final class AppState {
         player.pixelSampler = sampler
         scriptRunner.pixelSampler = sampler
         player.onFinish = { [weak self] _ in DispatchQueue.main.async { self?.activityEnded() } }
-        clicker.onFinish = { [weak self] in DispatchQueue.main.async { self?.activityEnded() } }
         scriptRunner.onFinish = { [weak self] error in
             DispatchQueue.main.async {
                 if let error { self?.scriptLog.append("⚠︎ \(error)") }
@@ -64,6 +79,7 @@ final class AppState {
         reload()
         if let first = macros.first { selection = .macro(first.id) }
         registerHotkeys()
+        connectClickBackend()
     }
 
     var selectedMacro: Macro? {
@@ -73,6 +89,10 @@ final class AppState {
 
     func refreshPermissions() {
         permissionsGranted = Permissions.allGranted
+        // The helper and the mouse trigger's tap need Accessibility; reconnect once when it gets granted.
+        let accessibility = Permissions.accessibilityGranted
+        if accessibility, !hadAccessibility, !clickEngineIsHelper, activity.isIdle { connectClickBackend() }
+        hadAccessibility = accessibility
     }
 
     // MARK: - Library
@@ -250,12 +270,74 @@ final class AppState {
         if activity == .clicking { stopAll() } else { startAutoclick() }
     }
 
-    func startAutoclick() {
+    func startAutoclick(trigger: ClickTrigger = .app) {
         guard activity.isIdle else { return }
         refreshPermissions()
         guard Permissions.accessibilityGranted else { message = String(localized: "Grant the permissions first."); return }
-        clicker.start(settings.autoclick)
-        setActivity(.clicking)
+        // The engine resolves the target app; activity becomes .clicking when it reports `.started`.
+        clickBackend.start(trigger)
+    }
+
+    /// The keyboard shortcut; the mouse-button trigger is handled inside the engine.
+    private func autoclickHotkeyPressed() {
+        if settings.autoclick.mode == .hold { startAutoclick(trigger: .hotkey) }
+        else if activity == .clicking { stopAll() } else { startAutoclick(trigger: .hotkey) }
+    }
+
+    private func autoclickHotkeyReleased() {
+        // Not gated on `.clicking`: a quick tap can be released before the engine reports `.started`.
+        guard settings.autoclick.mode == .hold else { return }
+        clickBackend.stop()
+    }
+
+    private func connectClickBackend() {
+        clickBackend.shutdown()
+        if let url = AgentClient.bundledExecutable, let client = AgentClient.launch(executable: url) {
+            client.onExit = { [weak self, weak client] in
+                guard let self, let client, clickBackend === client else { return }
+                message = String(localized: "The click helper stopped; using the built-in clicker.")
+                if activity == .clicking { activityEnded() }
+                useClickBackend(ClickService(), helper: false)
+            }
+            useClickBackend(client, helper: true)
+        } else {
+            useClickBackend(ClickService(), helper: false)
+        }
+    }
+
+    private func useClickBackend(_ backend: ClickBackend, helper: Bool) {
+        clickBackend = backend
+        clickEngineIsHelper = helper
+        backend.onEvent = { [weak self] event in self?.handleClickEvent(event) }
+        pushClickSettings()
+    }
+
+    private func pushClickSettings() {
+        let armed = !mouseTriggerSuspended && (activity.isIdle || activity == .clicking)
+        clickBackend.apply(ClickServiceSettings(autoclick: settings.autoclick, triggerButton: settings.autoclickMouseButton,
+                                                triggerArmed: armed,
+                                                excludedPIDs: [ProcessInfo.processInfo.processIdentifier]))
+    }
+
+    private func handleClickEvent(_ event: ClickServiceEvent) {
+        switch event {
+        case .started:
+            // The mouse trigger is disarmed while busy, but a hotkey start can race a recording start.
+            if activity.isIdle { setActivity(.clicking) } else if activity != .clicking { clickBackend.stop() }
+        case let .progress(clicks):
+            if activity == .clicking { liveCount = clicks }
+        case .stopped:
+            if activity == .clicking { activityEnded() }
+        case .triggerUnavailable:
+            message = String(localized: "The mouse button shortcut needs Accessibility permission.")
+        case let .slowTaps(apps):
+            // Once per launch: the same apps would be reported after every session.
+            guard !slowTapsReported else { break }
+            slowTapsReported = true
+            message = String(localized: "\(apps.joined(separator: ", ")) delays every click, which can make the camera stutter in games. Try the Fast path delivery or quit that app.")
+        case .ready:
+            break
+        }
     }
 
     // MARK: - Stop
@@ -267,7 +349,7 @@ final class AppState {
             player.stop()
             scriptRunner.stop()
             watcher.stop()
-        case .clicking: clicker.stop()
+        case .clicking: clickBackend.stop()
         case .idle: break
         }
     }
@@ -278,7 +360,9 @@ final class AppState {
     }
 
     private func setActivity(_ new: Activity) {
+        let wasArmed = activity.isIdle || activity == .clicking
         activity = new
+        if wasArmed != (new.isIdle || new == .clicking) { pushClickSettings() }
         ticker?.invalidate()
         ticker = nil
         liveCount = 0
@@ -287,7 +371,7 @@ final class AppState {
             guard let self else { return }
             switch activity {
             case .recording: liveCount = recorder.capturedCount
-            case .clicking: liveCount = clicker.clickCount
+            case .clicking: break // `.progress` events
             case .playing: liveCount = player.currentLoop + 1
             case .idle: break
             }
@@ -311,13 +395,8 @@ final class AppState {
             if case .playing = activity { stopAll(viaHotkey: true) } else { playSelected() }
         }
         register(settings.stopHotkey, "stop") { [weak self] in self?.stopAll(viaHotkey: true) }
-        register(settings.autoclickHotkey, "autoclick", press: { [weak self] in
-            guard let self else { return }
-            if settings.autoclick.mode == .hold { startAutoclick() } else { toggleAutoclick() }
-        }, release: { [weak self] in
-            guard let self, settings.autoclick.mode == .hold, activity == .clicking else { return }
-            stopAll()
-        })
+        register(settings.autoclickHotkey, "autoclick", press: { [weak self] in self?.autoclickHotkeyPressed() },
+                 release: { [weak self] in self?.autoclickHotkeyReleased() })
         for macro in macros {
             guard let combo = macro.hotkey else { continue }
             register(combo, "macro.\(macro.id)") { [weak self] in self?.togglePlay(macro.id) }

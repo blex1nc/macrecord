@@ -79,6 +79,25 @@ private func flags(_ delay: UInt64 = 1_000) -> MacroEvent {
         #expect(RecordingSanitizer.trimTrailingUIClicks([move(1, 1)], isOwnUI: isOwnUI).count == 1)
     }
 
+    /// Files written before the compact format were pretty-printed with an id per event.
+    @Test func loadsPrettyPrintedLegacyFiles() throws {
+        let legacy = """
+        {
+          "createdAt" : "2026-10-04T13:41:00Z",
+          "events" : [
+            { "delayNs" : 0, "id" : "645CA6E1-6A07-46EE-9626-5B5CD040147B",
+              "kind" : { "mouseMove" : { "dx" : 5, "dy" : 0, "x" : 2791, "y" : -306 } } }
+          ],
+          "id" : "745CA6E1-6A07-46EE-9626-5B5CD040147B",
+          "name" : "Recording 1",
+          "options" : { "loopCount" : 1, "loopDelayMs" : 0, "relativeMouse" : false, "speed" : 1 },
+          "schemaVersion" : 1
+        }
+        """
+        let macro = try MacroStore.decode(Data(legacy.utf8))
+        #expect(macro.events.map(\.kind) == [.mouseMove(x: 2791, y: -306, dx: 5, dy: 0)])
+    }
+
     @Test func compactEncodingOmitsIDs() throws {
         let macro = Macro(name: "m", events: [move(1, 2)])
         let json = String(decoding: try MacroStore.encode(macro), as: UTF8.self)
@@ -163,5 +182,56 @@ private func flags(_ delay: UInt64 = 1_000) -> MacroEvent {
 
     @Test func keyNames() {
         #expect(KeyNames.describe(KeyCombo(keyCode: 15, modifiers: ModifierFlags([.command, .option]).rawValue)) == "⌥⌘R")
+    }
+
+    @Test func mouseTriggerNeverAllowsLeftOrRight() {
+        #expect(!MouseTrigger.isAllowed(0))
+        #expect(!MouseTrigger.isAllowed(1))
+        #expect(MouseTrigger.isAllowed(2) && MouseTrigger.isAllowed(4))
+        #expect(!MouseTrigger.matches(buttonNumber: 0, userData: 0, trigger: 0))
+    }
+
+    @Test func mouseTriggerIgnoresOwnAndOtherButtons() {
+        #expect(MouseTrigger.matches(buttonNumber: 3, userData: 0, trigger: 3))
+        #expect(!MouseTrigger.matches(buttonNumber: 4, userData: 0, trigger: 3))
+        #expect(!MouseTrigger.matches(buttonNumber: 3, userData: macrecordEventTag, trigger: 3))
+    }
+
+    @Test func autoClickDeliveryDecodesOldSettings() throws {
+        let old = try JSONEncoder().encode(AutoClickConfig())
+        let json = String(decoding: old, as: UTF8.self)
+        #expect(!json.contains("delivery"))
+        let decoded = try JSONDecoder().decode(AutoClickConfig.self, from: old)
+        #expect(decoded.delivery == nil)
+        #expect(decoded.effectiveDelivery == .system)
+
+        let app = AutoClickConfig(delivery: .app)
+        let roundTrip = try JSONDecoder().decode(AutoClickConfig.self, from: JSONEncoder().encode(app))
+        #expect(roundTrip.effectiveDelivery == .app)
+    }
+
+    @Test func latencyHistogramPercentiles() {
+        var h = LatencyHistogram()
+        #expect(h.percentileNs(0.99) == 0)
+        for _ in 0..<99 { h.add(3_000) }     // 3 µs → bucket < 4 µs
+        h.add(5_000_000)                      // 5 ms outlier
+        #expect(h.count == 100)
+        #expect(h.maxNs == 5_000_000)
+        #expect(h.percentileNs(0.5) == 4_000)
+        #expect(h.percentileNs(0.99) == 4_000)
+        #expect(h.percentileNs(1) == 5_000_000)
+    }
+
+    @Test func eventAgeHandlesTicksAndNanoseconds() {
+        let ticksToNs: (UInt64) -> UInt64 = { $0 * 125 / 3 }   // Apple silicon: 24 MHz ticks
+        let nowTicks: UInt64 = 195_925_951_720
+        let nowNs = ticksToNs(nowTicks)
+        // Timestamp in ticks, 24_000 ticks (1 ms) old.
+        #expect(EventAge.ns(timestamp: nowTicks - 24_000, nowTicks: nowTicks, nowUptimeNs: nowNs,
+                            ticksToNs: ticksToNs) == 1_000_000)
+        // Timestamp in nanoseconds, 2 ms old.
+        #expect(EventAge.ns(timestamp: nowNs - 2_000_000, nowTicks: nowTicks, nowUptimeNs: nowNs,
+                            ticksToNs: ticksToNs) == 2_000_000)
+        #expect(EventAge.ns(timestamp: 0, nowTicks: nowTicks, nowUptimeNs: nowNs, ticksToNs: ticksToNs) == nil)
     }
 }

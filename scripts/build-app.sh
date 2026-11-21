@@ -15,11 +15,15 @@ ARCH_FLAGS=""
 for arch in $ARCHS; do ARCH_FLAGS="$ARCH_FLAGS --arch $arch"; done
 # shellcheck disable=SC2086
 swift build -c release --product macrecord $ARCH_FLAGS
+# shellcheck disable=SC2086
+swift build -c release --product macrecord-clickd $ARCH_FLAGS
 BIN_DIR=$(swift build -c release --product macrecord $ARCH_FLAGS --show-bin-path)
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/macrecord" "$APP/Contents/MacOS/macrecord"
+# Click helper: a UI-free process the app launches for the autoclicker (falls back to in-process without it).
+cp "$BIN_DIR/macrecord-clickd" "$APP/Contents/MacOS/macrecord-clickd"
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" App/Info.plist > "$APP/Contents/Info.plist"
 cp -R App/Resources/*.lproj "$APP/Contents/Resources/"
 [ -f App/AppIcon.icns ] && cp App/AppIcon.icns "$APP/Contents/Resources/" && \
@@ -30,11 +34,18 @@ cp -R App/Resources/*.lproj "$APP/Contents/Resources/"
 # the cdhash, which changes on every build, so grants silently stop matching. Local ad-hoc builds therefore use an
 # identifier-based requirement so permissions survive rebuilds. Releases (RELEASE=1) keep the strict cdhash
 # requirement: an identifier-only requirement would let any app using this identifier inherit the grants.
+# Nested code is signed before the bundle that seals it. The helper runs as macrecord's child, so macOS attributes
+# its taps and posted events to the app's own grants.
+HELPER="$APP/Contents/MacOS/macrecord-clickd"
 if [ "$SIGN_IDENTITY" = "-" ] && [ "${RELEASE:-0}" != "1" ]; then
+    codesign --force --options runtime --timestamp=none --sign - --identifier io.github.blex1nc.macrecord.clickd \
+        -r='designated => identifier "io.github.blex1nc.macrecord.clickd"' "$HELPER"
     codesign --force --options runtime --timestamp=none --sign - \
         -r='designated => identifier "io.github.blex1nc.macrecord"' "$APP"
 else
+    codesign --force --options runtime --timestamp=none --sign "$SIGN_IDENTITY" \
+        --identifier io.github.blex1nc.macrecord.clickd "$HELPER"
     codesign --force --options runtime --timestamp=none --sign "$SIGN_IDENTITY" "$APP"
 fi
-codesign --verify --strict "$APP"
+codesign --verify --strict --deep "$APP"
 echo "Built $APP ($VERSION, $(lipo -archs "$APP/Contents/MacOS/macrecord"))"

@@ -13,7 +13,7 @@ struct AutoClickerView: View {
                 HStack {
                     VStack(alignment: .leading) {
                         Text("Autoclicker").font(.title2.bold())
-                        Text("Toggle with \(KeyNames.describe(state.settings.autoclickHotkey))")
+                        Text(triggerDescription)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -33,6 +33,12 @@ struct AutoClickerView: View {
             Section("Shortcut") {
                 LabeledContent("Start / stop autoclicker") {
                     RequiredHotkeyField(combo: $state.settings.autoclickHotkey)
+                }
+                LabeledContent {
+                    MouseButtonField(button: $state.settings.autoclickMouseButton) { state.mouseTriggerSuspended = $0 }
+                } label: {
+                    Text("Mouse button")
+                    Text("Middle or side buttons. While assigned, the button only controls the autoclicker.")
                 }
                 Picker("Shortcut mode", selection: $state.settings.autoclick.mode) {
                     Text("Toggle").tag(AutoClickConfig.Mode.toggle)
@@ -67,6 +73,18 @@ struct AutoClickerView: View {
                     Text("Double").tag(AutoClickConfig.ClickType.double)
                 }
                 .pickerStyle(.segmented)
+                Picker("Delivery", selection: delivery) {
+                    Text("System").tag(AutoClickConfig.Delivery.system)
+                    Text("Fast path").tag(AutoClickConfig.Delivery.fast)
+                    Text("Direct to app").tag(AutoClickConfig.Delivery.app)
+                }
+                .pickerStyle(.segmented)
+                Text("Fast path skips other apps' mouse taps; Direct to app sends clicks only to the app in front, without moving the cursor. Some games, Roblox included, ignore both; use System there, and quit apps that slow down clicks (macrecord names them).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(state.clickEngineIsHelper ? "Engine: click helper (separate process)" : "Engine: built-in")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("Position") {
                 Picker("Click at", selection: targetKind) {
@@ -101,6 +119,17 @@ struct AutoClickerView: View {
         }
         .formStyle(.grouped)
         .disabled(running)
+    }
+
+    private var triggerDescription: String {
+        let keys = KeyNames.describe(state.settings.autoclickHotkey)
+        guard let button = state.settings.autoclickMouseButton else { return String(localized: "Toggle with \(keys)") }
+        return String(localized: "Toggle with \(keys) or the \(MouseButtonField.name(button)) mouse button")
+    }
+
+    private var delivery: Binding<AutoClickConfig.Delivery> {
+        Binding(get: { state.settings.autoclick.effectiveDelivery },
+                set: { state.settings.autoclick.delivery = $0 })
     }
 
     private var targetKind: Binding<Int> {
