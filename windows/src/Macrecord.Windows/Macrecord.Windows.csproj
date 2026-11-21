@@ -9,6 +9,11 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
+  <!-- Single-file publish embeds the .NET runtime; compression roughly thirds the download. -->
+  <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Macrecord.Core/Macrecord.Core.csproj" />
   </ItemGroup>

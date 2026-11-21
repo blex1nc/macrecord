@@ -4,7 +4,12 @@ macrecord is built to never send data anywhere.
 
 - **No networking code.** `scripts/check-no-network.sh` runs in CI and fails the build if any networking API
   (URLSession, sockets, Network.framework, web views, update frameworks…) appears in `Sources/`.
-- **No telemetry, analytics, crash reporting or auto-update.**
+- **No telemetry, analytics or crash reporting.** The macOS app has no auto-update.
+- **Windows app — one network call:** the Windows autoclicker checks
+  `https://api.github.com/repos/blex1nc/macrecord/releases/latest` at launch to see whether a newer version exists,
+  and downloads the new exe from GitHub only when you click the update notice. Nothing about you or your usage is
+  sent. Turn it off with “Güncellemeleri otomatik denetle” in the app. `scripts/check-windows-network.sh` fails CI if
+  any other networking code or host appears in `windows/src`. Settings are stored in `%APPDATA%\macrecord\settings.json`.
 - **What is stored:** macros you record or write, as JSON files in
   `~/Library/Application Support/macrecord/Macros`, and your settings in macrecord's preferences.
   Nothing else is written.

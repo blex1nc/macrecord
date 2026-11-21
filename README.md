@@ -41,6 +41,19 @@ macrecord is not notarized (no paid Apple Developer account), so on first launch
 Then grant **Accessibility** (to replay) and **Input Monitoring** (to record) when asked.
 **Screen Recording** is only needed for “wait for pixel color”.
 
+## Windows (autoclicker)
+
+A separate Windows build covers the autoclicker only (no macro recording): CPS, button, single/double click,
+hold or toggle mode, F-key and middle/side-mouse-button triggers, cursor or fixed position, limits and randomness.
+
+1. Download `macrecord-windows-x64.exe` from [Releases](https://github.com/blex1nc/macrecord/releases/latest).
+2. It is not code-signed, so SmartScreen may warn: click **More info → Run anyway**.
+3. Start/stop with **F6** (changeable), or assign a side mouse button. In games such as Roblox use the cursor target.
+
+The app checks GitHub for updates at launch and updates itself when you click the notice (can be turned off).
+If Roblox or another game runs as administrator, run macrecord as administrator too (Windows blocks input from
+lower-privileged apps).
+
 ## Default shortcuts
 
 | Action | Shortcut |
@@ -104,3 +117,6 @@ Her şey senin Mac'inde çalışır, hiçbir veri dışarı gönderilmez. Kodda 
 
 **Kurulum:** `brew install --cask blex1nc/macrecord/macrecord` veya Releases'tan zip'i indir.
 İlk açılışta: Sistem Ayarları → Gizlilik ve Güvenlik → **Yine de Aç**. Sonra Erişilebilirlik ve Girdi İzleme izinlerini ver.
+
+**Windows:** Releases'tan `macrecord-windows-x64.exe`'yi indir; SmartScreen uyarısında **Ek bilgi → Yine de çalıştır**.
+Varsayılan kısayol **F6**; yan fare tuşu da atanabilir. Uygulama açılışta GitHub'dan güncelleme denetler (kapatılabilir).
