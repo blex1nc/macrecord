@@ -19,7 +19,7 @@ public class AutoClickConfigTests
         Assert.Equal(150_000_000, config.JitteredIntervalNs(1));
         Assert.Equal(150_000_000, config.JitteredIntervalNs(5));      // random clamped
         config.TimingJitter = 3;                                       // jitter clamped to 0.9
-        Assert.Equal(10_000_000, config.JitteredIntervalNs(-1));
+        Assert.InRange(config.JitteredIntervalNs(-1), 9_999_999, 10_000_000); // 0.1 × 100 ms, float truncation
     }
 
     [Fact]
