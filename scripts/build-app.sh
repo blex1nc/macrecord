@@ -11,13 +11,20 @@ SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 ARCHS="${ARCHS:-arm64 x86_64}"
 APP=dist/macrecord.app
 
-ARCH_FLAGS=""
-for arch in $ARCHS; do ARCH_FLAGS="$ARCH_FLAGS --arch $arch"; done
-# shellcheck disable=SC2086
-swift build -c release --product macrecord $ARCH_FLAGS
-# shellcheck disable=SC2086
-swift build -c release --product macrecord-clickd $ARCH_FLAGS
-BIN_DIR=$(swift build -c release --product macrecord $ARCH_FLAGS --show-bin-path)
+# One native SwiftPM build per architecture, merged with lipo. A multi-arch `swift build` switches to XCBuild,
+# which older Xcode versions (CI runners) reject for targets using `.swiftLanguageMode(.v5)`.
+PRODUCTS="macrecord macrecord-clickd"
+BIN_DIR=.build/universal
+mkdir -p "$BIN_DIR"
+for product in $PRODUCTS; do
+    SLICES=""
+    for arch in $ARCHS; do
+        swift build -c release --arch "$arch" --product "$product"
+        SLICES="$SLICES $(swift build -c release --arch "$arch" --show-bin-path)/$product"
+    done
+    # shellcheck disable=SC2086
+    lipo -create $SLICES -output "$BIN_DIR/$product"
+done
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
